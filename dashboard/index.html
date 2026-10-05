@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VICE-SIM</title>
+<style>
+:root{--bg:#0a0516;--panel:#150a2c;--line:#34195f;--pink:#ff3d9a;--cyan:#2ee6ff;--txt:#ece6ff;--dim:#9a8fc0}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,#1d0a3a 0,var(--bg) 220px);color:var(--txt);font:14px/1.45 "Trebuchet MS","Segoe UI",sans-serif;min-height:100vh}
+header{display:flex;align-items:baseline;gap:14px;padding:16px 20px 10px}
+h1{margin:0;font:italic 800 30px/1 "Impact","Arial Black",sans-serif;letter-spacing:.04em;color:var(--pink);text-shadow:3px 3px 0 var(--cyan)}
+header span{color:var(--dim)}
+main{display:flex;gap:16px;padding:0 20px 24px;flex-wrap:wrap;align-items:flex-start}
+canvas{max-width:100%;height:auto;border:2px solid var(--line);border-radius:6px;box-shadow:0 0 34px #ff3d9a38}
+aside{flex:1;min-width:270px;max-width:380px;display:flex;flex-direction:column;gap:12px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px}
+h2{margin:0 0 8px;font-size:15px;color:var(--cyan)}
+.row{display:flex;flex-wrap:wrap;gap:6px}
+button,select{background:#220f45;color:var(--txt);border:1px solid var(--line);border-radius:4px;padding:7px 10px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--pink)}button:focus-visible,select:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+button.on{background:var(--pink);border-color:var(--pink);color:#12041f}
+.crime{border-color:var(--pink)}
+#clock{font:700 28px "Courier New",monospace;color:var(--cyan)}
+#stars{font-size:26px;color:var(--pink);letter-spacing:3px}
+dl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin:0}dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}dt{color:var(--dim)}
+#log{margin:0;padding:0;list-style:none;font:12px/1.5 "Courier New",monospace;max-height:210px;overflow:auto}
+#log li{border-bottom:1px solid #261249;padding:2px 0}
+.key{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--dim);font-size:12px}.key i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
+</style>
+</head>
+<body>
+<header><h1>VICE-SIM</h1><span>A living city. Every dot is thinking.</span></header>
+<main>
+<canvas id="c" aria-label="City simulation map"></canvas>
+<aside>
+ <section><div id="clock">--:--</div><div id="stars" aria-label="Wanted level"></div>
+  <dl id="stats"></dl></section>
+ <section><h2>Scenario</h2><div class="row" id="scen"></div></section>
+ <section><h2>Controls</h2><div class="row">
+  <button class="crime" data-crime="theft">Theft</button><button class="crime" data-crime="assault">Assault</button>
+  <button class="crime" data-crime="robbery">Robbery</button><button class="crime" data-crime="shooting">Shooting</button></div>
+  <div class="row" style="margin-top:8px"><button id="pause">Pause</button>
+  <select id="speed" aria-label="Speed"><option value="4">Slow</option><option value="8" selected>Normal</option><option value="20">Fast</option><option value="40">Turbo</option></select>
+  <select id="overlay" aria-label="Overlay"><option value="none">No overlay</option><option value="crime">Crime heat</option><option value="traffic">Traffic</option></select></div></section>
+ <section><h2>City feed</h2><ul id="log"></ul>
+  <div class="key" style="margin-top:8px"><span><i style="background:#cfe3ff"></i>civilian</span><span><i style="background:#ff4b4b"></i>panicking</span><span><i style="background:#3d7bff"></i>police</span><span><i style="background:#ff3d9a"></i>outlaw</span><span><i style="background:#ffd23d"></i>car</span></div></section>
+</aside>
+</main>
+<script>
+const S=16,C=document.getElementById("c"),g=C.getContext("2d");
+const COL={R:"#1b1235",P:"#0f3d2e",B:"#2a2050",home:"#3a2a78",shop:"#0e7a8a",work:"#7a3a8c",police:"#2447ff"};
+let map,paused=false;
+const api=(u,m="GET")=>fetch(u,{method:m}).then(r=>r.json());
+async function init(){
+ map=await api("/api/map");C.width=map.w*S;C.height=map.h*S;
+ const sc=document.getElementById("scen");
+ map.scenarios.forEach(n=>{const b=document.createElement("button");b.textContent=n.replace("_"," ");b.dataset.s=n;b.onclick=()=>api("/api/scenario?name="+n,"POST");sc.append(b)});
+ document.querySelectorAll("[data-crime]").forEach(b=>b.onclick=()=>api("/api/crime?kind="+b.dataset.crime,"POST"));
+ document.getElementById("pause").onclick=()=>api("/api/pause","POST");
+ document.getElementById("speed").onchange=e=>api("/api/speed?v="+e.target.value,"POST");
+ loop();
+}
+async function loop(){try{draw(await api("/api/state"))}catch(e){}setTimeout(loop,140)}
+function draw(st){
+ g.fillStyle=COL.B;g.fillRect(0,0,C.width,C.height);
+ map.grid.forEach((row,y)=>[...row].forEach((t,x)=>{if(t!=="B"){g.fillStyle=COL[t];g.fillRect(x*S,y*S,S,S)}}));
+ map.places.forEach(([k,x,y])=>{g.fillStyle=COL[k];g.fillRect(x*S+1,y*S+1,S-2,S-2)});
+ for(let y=0;y<map.h;y+=8)for(let x=0;x<map.w;x+=8){g.fillStyle=st.phase===0?"#3dff8a":"#ff4b4b";g.fillRect(x*S+5,y*S+5,6,6)}
+ const ov=document.getElementById("overlay").value;
+ if(ov==="crime")st.heat.forEach(([x,y,v])=>{g.fillStyle=`rgba(255,61,154,${Math.min(.7,v/20)})`;g.fillRect(x*4*S,y*4*S,4*S,4*S)});
+ if(ov==="traffic")st.traffic.forEach(([x,y,v])=>{g.fillStyle=`rgba(46,230,255,${Math.min(.8,v/6)})`;g.fillRect(x*S,y*S,S,S)});
+ g.fillStyle="#ffd23d";st.cars.forEach(([x,y])=>g.fillRect(x*S+3,y*S+4,10,8));
+ st.agents.forEach(([id,k,x,y])=>{
+  const cx=x*S+S/2,cy=y*S+S/2;
+  g.fillStyle={civ:"#cfe3ff",panic:"#ff4b4b",cop:"#3d7bff",outlaw:"#ff3d9a"}[k];
+  if(k==="outlaw"){g.shadowColor="#ff3d9a";g.shadowBlur=14}
+  g.beginPath();g.arc(cx,cy,k==="civ"||k==="panic"?3:5,0,7);g.fill();g.shadowBlur=0});
+ document.getElementById("clock").textContent=st.time;
+ document.getElementById("stars").textContent="★".repeat(st.wanted)+"☆".repeat(5-st.wanted);
+ const s=st.stats,rows=[["Crimes",s.crimes],["Witness reports",s.reports],["Busts",s.busts],["Shop revenue","$"+s.revenue],["Average mood",s.mood+"/100"],["Know the rumour",s.rumor_pct+"%"],["Officers busy",s.cops_busy],["Outlaw",s.outlaw]];
+ document.getElementById("stats").innerHTML=rows.map(r=>`<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join("");
+ document.getElementById("log").innerHTML=st.events.map(e=>`<li>${e}</li>`).join("");
+ document.getElementById("pause").textContent=st.paused?"Resume":"Pause";
+ document.querySelectorAll("#scen button").forEach(b=>b.classList.toggle("on",b.dataset.s===st.scenario));
+}
+init();
+</script>
+</body>
+</html>
